@@ -1,0 +1,208 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "722f92e3-4324-41b8-bebb-eb5c5c1c0f1a",
+   "metadata": {},
+   "source": [
+    "# Quantum Counting\n",
+    "\n",
+    "Here we count the number of solutions to the equation $x+y\\leq 7$ where x, y are integers of size `REG_SIZE` bits. "
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "3226860d-953f-4993-82fd-f629497d58c7",
+   "metadata": {},
+   "source": [
+    "## Using the `AmplitudeEstimation` function"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 39,
+   "id": "0db8dd49-550a-419e-bce1-1a19a4a88ba7",
+   "metadata": {
+    "scrolled": true
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Opening: https://platform.classiq.io/circuit/388ff783-1868-4e26-b930-03b6eb01fd35?version=0.28.0\n"
+     ]
+    }
+   ],
+   "source": [
+    "from classiq import Model, Constraints, synthesize, show, execute\n",
+    "from classiq.builtin_functions import GroverOperator, ArithmeticOracle, AmplitudeEstimation\n",
+    "from classiq import RegisterUserInput\n",
+    "from classiq.execution import ExecutionPreferences\n",
+    "from classiq.execution import QaeWithQpeEstimationMethod\n",
+    "\n",
+    "REG_SIZE=3\n",
+    "NUM_PHASE_QUBITS=3\n",
+    "\n",
+    "arith_params = ArithmeticOracle(\n",
+    "    expression = \"x + y <= 7\",\n",
+    "    definitions=dict(\n",
+    "        x = RegisterUserInput(size=REG_SIZE),\n",
+    "        y = RegisterUserInput(size=REG_SIZE)),\n",
+    ")\n",
+    "\n",
+    "grover_operator_params = GroverOperator(\n",
+    "    oracle_params = arith_params,\n",
+    ")\n",
+    "\n",
+    "ae_params = AmplitudeEstimation(\n",
+    "    estimation_register_size=NUM_PHASE_QUBITS, grover_operator=grover_operator_params\n",
+    ")\n",
+    "\n",
+    "model = Model()\n",
+    "\n",
+    "model.constraints = Constraints(max_width=12)\n",
+    "\n",
+    "qae_out = model.AmplitudeEstimation(ae_params)\n",
+    "\n",
+    "# necessary for the post-process to recognize the register\n",
+    "model.set_outputs({'ESTIMATED_AMPLITUDE_OUTPUT': qae_out['ESTIMATED_AMPLITUDE_OUTPUT']})\n",
+    "\n",
+    "# set execution instructions\n",
+    "model.sample()\n",
+    "model.post_process_amplitude_estimation(estimation_register_size=NUM_PHASE_QUBITS, estimation_method=QaeWithQpeEstimationMethod.MAXIMUM_LIKELIHOOD)\n",
+    "\n",
+    "quantum_program = synthesize(model.get_model())\n",
+    "show(quantum_program)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 40,
+   "id": "21a9aef8-996d-4b92-92f7-616412985fb9",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "The probability estimation of the good states is: 0.14644660940672624\n"
+     ]
+    }
+   ],
+   "source": [
+    "qae_result = execute(quantum_program)\n",
+    "print(f\"The probability estimation of the good states is: {qae_result[1].value}\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "93064d5d-25ba-4fd5-b3fd-eef55b7e07bd",
+   "metadata": {},
+   "source": [
+    "## Explicitly defining the amplitude estimation circuit"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 48,
+   "id": "786636e3-91f8-42d8-8218-9caa5ac142ec",
+   "metadata": {
+    "scrolled": true
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Opening: https://platform.classiq.io/circuit/415ca5ff-63d5-485a-af16-1afaa6549cd7?version=0.28.0\n"
+     ]
+    }
+   ],
+   "source": [
+    "from classiq import Model, Constraints, synthesize, show, execute\n",
+    "from classiq.builtin_functions import GroverOperator, ArithmeticOracle, UniformDistributionStatePreparation, PhaseEstimation\n",
+    "from classiq import RegisterUserInput\n",
+    "from classiq.execution import ExecutionPreferences\n",
+    "from classiq.execution import QaeWithQpeEstimationMethod\n",
+    "\n",
+    "REG_SIZE=3\n",
+    "NUM_PHASE_QUBITS=3\n",
+    "\n",
+    "sp_params = UniformDistributionStatePreparation(num_qubits=REG_SIZE)\n",
+    "arith_params = ArithmeticOracle(\n",
+    "    expression = \"x + y <= 7\",\n",
+    "    definitions=dict(\n",
+    "        x = RegisterUserInput(size=REG_SIZE),\n",
+    "        y = RegisterUserInput(size=REG_SIZE)),\n",
+    ")\n",
+    "\n",
+    "grover_operator_params = GroverOperator(\n",
+    "    oracle_params = arith_params,\n",
+    ")\n",
+    "\n",
+    "qpe_params = PhaseEstimation(\n",
+    "    size=NUM_PHASE_QUBITS, unitary=\"GroverOperator\", unitary_params=grover_operator_params\n",
+    ")\n",
+    "\n",
+    "model = Model()\n",
+    "model.constraints = Constraints(max_width=12)\n",
+    "\n",
+    "sp_x = model.UniformDistributionStatePreparation(sp_params)['OUT']\n",
+    "sp_y = model.UniformDistributionStatePreparation(sp_params)['OUT']\n",
+    "\n",
+    "qpe_out = model.PhaseEstimation(params=qpe_params, in_wires={'x': sp_x, 'y': sp_y})\n",
+    "\n",
+    "# necessary for the post-process to recognize the register\n",
+    "model.set_outputs({'ESTIMATED_AMPLITUDE_OUTPUT': qpe_out['PHASE_ESTIMATION']})\n",
+    "\n",
+    "# set execution instructions\n",
+    "model.sample()\n",
+    "model.post_process_amplitude_estimation(estimation_register_size=NUM_PHASE_QUBITS, estimation_method=QaeWithQpeEstimationMethod.MAXIMUM_LIKELIHOOD)\n",
+    "\n",
+    "quantum_program = synthesize(model.get_model())\n",
+    "show(quantum_program)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 49,
+   "id": "78f3ccab-1b22-42d5-a328-6ed44abcd88b",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "The probability estimation of the good states is: 0.5000000000000001\n"
+     ]
+    }
+   ],
+   "source": [
+    "qae_result = execute(quantum_program)\n",
+    "print(f\"The probability estimation of the good states is: {qae_result[1].value}\")"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.11.4"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
